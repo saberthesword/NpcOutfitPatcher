@@ -3,6 +3,7 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Synthesis;
+using Noggog;
 
 namespace HideArmorOutfitPatcher
 {
@@ -109,8 +110,15 @@ namespace HideArmorOutfitPatcher
             }
 
             var generated = new Outfit(formKey, state.PatchMod.SkyrimRelease);
-            generated.DeepCopyIn(source);                  // copy the hide armor outfit's item list
-            generated.EditorID = GeneratedOutfitEditorId;  // DeepCopyIn also copies the source EditorID, so reset it
+            generated.EditorID = GeneratedOutfitEditorId;
+
+            // Copy the source outfit's item list (armors / leveled items)
+            generated.Items = new ExtendedList<IFormLinkGetter<IOutfitTargetGetter>>();
+            foreach (var item in source.Items ?? Enumerable.Empty<IFormLinkGetter<IOutfitTargetGetter>>())
+            {
+                generated.Items.Add(new FormLink<IOutfitTargetGetter>(item.FormKey));
+            }
+
             state.PatchMod.Outfits.Add(generated);
             return generated;
         }
