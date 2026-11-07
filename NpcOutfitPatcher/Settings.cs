@@ -10,10 +10,7 @@ namespace HideArmorOutfitPatcher
         [SynthesisTooltip("NPCs to patch. Only these NPCs are touched; nothing else in the load order is.")]
         public List<FormLink<INpcGetter>> Npcs = new();
 
-        [SynthesisTooltip("Outfit to assign. Leave empty to auto-find by the Editor ID below.")]
-        public FormLink<IOutfitGetter> HideArmorOutfit = new();
-
-        [SynthesisTooltip("Fallback Editor ID used to find the hide armor outfit when no outfit is picked above.")]
-        public string HideArmorOutfitEditorId = "ArmorHideOutfit";
+        [SynthesisTooltip("Outfit assigned to every selected NPC that doesn't already have one.")]
+        public FormLink<IOutfitGetter> OutfitOverride = new();
     }
 }

@@ -36,8 +36,7 @@ namespace HideArmorOutfitPatcher
             if (outfit == null)
             {
                 throw new Exception(
-                    "Could not find the hide armor outfit. Pick one in settings, " +
-                    $"or check that Editor ID '{Settings.HideArmorOutfitEditorId}' exists in your load order.");
+                    "No valid outfit selected. Pick the hide armor outfit in the patcher settings.");
             }
             Console.WriteLine($"Using outfit: {outfit.EditorID ?? "<no editor id>"} [{outfit.FormKey}]");
 
@@ -75,19 +74,8 @@ namespace HideArmorOutfitPatcher
 
         private static IOutfitGetter? ResolveOutfit(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
-            // 1. Explicit selection in settings
-            if (!Settings.HideArmorOutfit.IsNull
-                && Settings.HideArmorOutfit.TryResolve(state.LinkCache, out var picked))
-            {
-                return picked;
-            }
-
-            // 2. Fallback: search winning outfits by Editor ID
-            var edid = Settings.HideArmorOutfitEditorId;
-            if (string.IsNullOrWhiteSpace(edid)) return null;
-
-            return state.LoadOrder.PriorityOrder.Outfit().WinningOverrides()
-                .FirstOrDefault(o => string.Equals(o.EditorID, edid, StringComparison.OrdinalIgnoreCase));
+            if (Settings.OutfitOverride.IsNull) return null;
+            return Settings.OutfitOverride.TryResolve(state.LinkCache, out var outfit) ? outfit : null;
         }
     }
 }
