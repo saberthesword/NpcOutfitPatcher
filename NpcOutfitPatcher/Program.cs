@@ -37,12 +37,13 @@ namespace HideArmorOutfitPatcher
                 return;
             }
 
-            // Step 1: for every selected NPC, work out which outfit its new record is based on.
-            //   - NPC already has a default outfit -> that outfit
-            //   - NPC has no outfit                 -> the OutfitOverride from settings (placeholder contents)
-            var npcSources = new List<(INpcGetter Npc, IOutfitGetter Source)>();
+            // Step 1: pick the NPCs that need work.
+            //   - NPC already has a default outfit -> left completely alone (no override, no new record)
+            //   - NPC has no outfit                 -> gets a new per-NPC outfit record whose contents
+            //                                          come from the OutfitOverride placeholder
+            var targets = new List<INpcGetter>();
             var seenNpcs = new HashSet<FormKey>();
-            int missing = 0;
+            int skippedFilled = 0, missing = 0;
 
             foreach (var link in Settings.Npcs)
             {
@@ -55,54 +56,48 @@ namespace HideArmorOutfitPatcher
                     continue;
                 }
 
-                IOutfitGetter? source;
                 if (!npc.DefaultOutfit.IsNull)
                 {
-                    state.LinkCache.TryResolve<IOutfitGetter>(npc.DefaultOutfit.FormKey, out source);
-                }
-                else
-                {
-                    if (Settings.OutfitOverride.IsNull)
-                    {
-                        source = null;
-                    }
-                    else
-                    {
-                        state.LinkCache.TryResolve<IOutfitGetter>(Settings.OutfitOverride.FormKey, out source);
-                    }
-                }
-
-                if (source == null)
-                {
-                    Console.WriteLine(
-                        $"Warning: no resolvable outfit for {npc.EditorID ?? npc.FormKey.ToString()} " +
-                        "(check the NPC's outfit and the OutfitOverride setting), skipping.");
-                    missing++;
+                    Console.WriteLine($"Skipping {npc.EditorID ?? npc.FormKey.ToString()}: outfit already set.");
+                    skippedFilled++;
                     continue;
                 }
 
-                npcSources.Add((npc, source));
+                targets.Add(npc);
             }
 
-            if (npcSources.Count == 0)
+            if (targets.Count == 0)
             {
-                Console.WriteLine($"Done. Nothing patched, unresolved: {missing}");
+                Console.WriteLine(
+                    $"Done. Nothing to patch. Skipped (already had outfit): {skippedFilled}, unresolved: {missing}");
                 return;
             }
 
-            // Step 2: create one outfit record in the patch per NPC and point the NPC at it.
+            // The placeholder is only needed when there is something to generate
+            IOutfitGetter? placeholder = null;
+            if (!Settings.OutfitOverride.IsNull)
+            {
+                state.LinkCache.TryResolve<IOutfitGetter>(Settings.OutfitOverride.FormKey, out placeholder);
+            }
+            if (placeholder == null)
+            {
+                throw new Exception(
+                    "No valid outfit selected. Pick an outfit for OutfitOverride in the patcher settings.");
+            }
+
+            // Step 2: create one outfit record per NPC and point the NPC at it.
             // Each NPC keeps the FormID it was first given (stored in the ID map), so adding or
             // removing NPCs later never shifts the IDs of the others.
             var mapPath = GetIdMapPath(state);
             var idMap = LoadIdMap(mapPath);
             uint nextId = Math.Max(FirstGeneratedFormId, idMap.Values.DefaultIfEmpty(0u).Max() + 1);
 
-            var ordered = npcSources
-                .OrderBy(x => x.Npc.FormKey.ModKey.FileName.String, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(x => x.Npc.FormKey.ID)
+            var ordered = targets
+                .OrderBy(n => n.FormKey.ModKey.FileName.String, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(n => n.FormKey.ID)
                 .ToList();
 
-            foreach (var (npc, source) in ordered)
+            foreach (var npc in ordered)
             {
                 var mapKey = npc.FormKey.ToString();
                 if (!idMap.TryGetValue(mapKey, out var formId))
@@ -112,21 +107,20 @@ namespace HideArmorOutfitPatcher
                 }
 
                 var formKey = new FormKey(state.PatchMod.ModKey, formId);
-                var generated = GetOrCreateGeneratedOutfit(state, formKey, npc, source);
+                var generated = GetOrCreateGeneratedOutfit(state, formKey, npc, placeholder);
 
                 var overrideNpc = state.PatchMod.Npcs.GetOrAddAsOverride(npc);
                 overrideNpc.DefaultOutfit.SetTo(generated.FormKey);
 
                 Console.WriteLine(
-                    $"Patched {npc.EditorID ?? npc.FormKey.ToString()}: " +
-                    $"{generated.EditorID} [{generated.FormKey}] based on {source.EditorID ?? source.FormKey.ToString()}");
+                    $"Patched {npc.EditorID ?? npc.FormKey.ToString()}: {generated.EditorID} [{generated.FormKey}]");
             }
 
             SaveIdMap(mapPath, idMap);
             Console.WriteLine($"ID map saved to {mapPath}");
 
             Console.WriteLine(
-                $"Done. NPCs patched / outfit records generated: {ordered.Count}, unresolved: {missing}");
+                $"Done. NPCs patched / new outfit records: {ordered.Count}, skipped (already had outfit): {skippedFilled}, unresolved: {missing}");
         }
 
         /// <summary>
