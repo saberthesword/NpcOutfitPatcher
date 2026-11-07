@@ -36,12 +36,12 @@ namespace HideArmorOutfitPatcher
             if (outfit == null)
             {
                 throw new Exception(
-                    "No valid outfit selected. Pick the hide armor outfit in the patcher settings.");
+                    "No valid outfit selected. Pick an outfit for OutfitOverride in the patcher settings.");
             }
             Console.WriteLine($"Using outfit: {outfit.EditorID ?? "<no editor id>"} [{outfit.FormKey}]");
 
             var seen = new HashSet<FormKey>();
-            int patched = 0, skippedFilled = 0, missing = 0;
+            int patched = 0, outfitOverrides = 0, missing = 0;
 
             foreach (var link in Settings.Npcs)
             {
@@ -57,8 +57,21 @@ namespace HideArmorOutfitPatcher
 
                 if (!npc.DefaultOutfit.IsNull)
                 {
-                    Console.WriteLine($"Skipping {npc.EditorID ?? npc.FormKey.ToString()}: outfit already set.");
-                    skippedFilled++;
+                    // NPC already has an outfit: leave the NPC alone and override its existing outfit record
+                    if (npc.DefaultOutfit.TryResolve(state.LinkCache, out var existingOutfit))
+                    {
+                        state.PatchMod.Outfits.GetOrAddAsOverride(existingOutfit);
+                        outfitOverrides++;
+                        Console.WriteLine(
+                            $"{npc.EditorID ?? npc.FormKey.ToString()} already has an outfit; " +
+                            $"overrode outfit {existingOutfit.EditorID ?? existingOutfit.FormKey.ToString()}.");
+                    }
+                    else
+                    {
+                        Console.WriteLine(
+                            $"Warning: outfit {npc.DefaultOutfit.FormKey} on {npc.EditorID ?? npc.FormKey.ToString()} could not be resolved.");
+                        missing++;
+                    }
                     continue;
                 }
 
@@ -69,7 +82,7 @@ namespace HideArmorOutfitPatcher
             }
 
             Console.WriteLine(
-                $"Done. Patched: {patched}, skipped (already had outfit): {skippedFilled}, unresolved: {missing}");
+                $"Done. Patched: {patched}, existing outfits overridden: {outfitOverrides}, unresolved: {missing}");
         }
 
         private static IOutfitGetter? ResolveOutfit(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
