@@ -10,7 +10,7 @@ namespace HideArmorOutfitPatcher
         [SynthesisTooltip("NPCs to patch. Only these NPCs are touched; nothing else in the load order is.")]
         public List<FormLink<INpcGetter>> Npcs = new();
 
-        [SynthesisTooltip("Source outfit (e.g. the default hide armor outfit). Its contents are copied into a new outfit record generated in the patch, which is assigned to selected NPCs that have no outfit.")]
+        [SynthesisTooltip("Placeholder contents for the outfit record of selected NPCs that have no outfit. NPCs that already have one are copied from their own outfit.")]
         public FormLink<IOutfitGetter> OutfitOverride = new();
     }
 }
