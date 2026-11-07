@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Match these to whatever the Synthesis patcher template gives you if they differ -->
+    <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
+    <PackageReference Include="Mutagen.Bethesda.Synthesis" Version="0.36.6" />
+  </ItemGroup>
+
+</Project>
