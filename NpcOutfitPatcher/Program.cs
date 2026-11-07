@@ -8,6 +8,11 @@ namespace HideArmorOutfitPatcher
 {
     public class Program
     {
+        // Fixed identity for the generated outfit. Because both values are constants, every
+        // regeneration of the patch produces the exact same FormKey and EditorID.
+        private const string GeneratedOutfitEditorId = "SynthHideArmorOutfit";
+        private const uint GeneratedOutfitFormId = 0x800;
+
         private static Lazy<Settings> _settings = null!;
         private static Settings Settings => _settings.Value;
 
@@ -31,23 +36,24 @@ namespace HideArmorOutfitPatcher
                 return;
             }
 
-            // Resolve the outfit to assign
-            var outfit = ResolveOutfit(state);
-            if (outfit == null)
+            // The outfit whose contents get copied into the generated record
+            var sourceOutfit = ResolveSourceOutfit(state);
+            if (sourceOutfit == null)
             {
                 throw new Exception(
                     "No valid outfit selected. Pick an outfit for OutfitOverride in the patcher settings.");
             }
-            Console.WriteLine($"Using outfit: {outfit.EditorID ?? "<no editor id>"} [{outfit.FormKey}]");
 
+            // Collect the NPCs that actually need patching first, so the outfit record is
+            // only generated when it will be used
+            var targets = new List<INpcGetter>();
             var seen = new HashSet<FormKey>();
-            int patched = 0, outfitOverrides = 0, missing = 0;
+            int skippedFilled = 0, missing = 0;
 
             foreach (var link in Settings.Npcs)
             {
                 if (link.IsNull || !seen.Add(link.FormKey)) continue;
 
-                // Winning override in the load order is what decides whether the outfit is "filled in"
                 if (!state.LinkCache.TryResolve<INpcGetter>(link.FormKey, out var npc))
                 {
                     Console.WriteLine($"Warning: could not resolve NPC {link.FormKey}, skipping.");
@@ -55,37 +61,61 @@ namespace HideArmorOutfitPatcher
                     continue;
                 }
 
+                // Winning override in the load order decides whether the outfit is "filled in"
                 if (!npc.DefaultOutfit.IsNull)
                 {
-                    // NPC already has an outfit: leave the NPC alone and override its existing outfit record
-                    if (npc.DefaultOutfit.TryResolve(state.LinkCache, out var existingOutfit))
-                    {
-                        state.PatchMod.Outfits.GetOrAddAsOverride(existingOutfit);
-                        outfitOverrides++;
-                        Console.WriteLine(
-                            $"{npc.EditorID ?? npc.FormKey.ToString()} already has an outfit; " +
-                            $"overrode outfit {existingOutfit.EditorID ?? existingOutfit.FormKey.ToString()}.");
-                    }
-                    else
-                    {
-                        Console.WriteLine(
-                            $"Warning: outfit {npc.DefaultOutfit.FormKey} on {npc.EditorID ?? npc.FormKey.ToString()} could not be resolved.");
-                        missing++;
-                    }
+                    Console.WriteLine($"Skipping {npc.EditorID ?? npc.FormKey.ToString()}: outfit already set.");
+                    skippedFilled++;
                     continue;
                 }
 
+                targets.Add(npc);
+            }
+
+            if (targets.Count == 0)
+            {
+                Console.WriteLine(
+                    $"Done. Patched: 0, skipped (already had outfit): {skippedFilled}, unresolved: {missing}");
+                return;
+            }
+
+            var generated = GetOrCreateGeneratedOutfit(state, sourceOutfit);
+            Console.WriteLine($"Using generated outfit {generated.EditorID} [{generated.FormKey}]");
+
+            foreach (var npc in targets)
+            {
                 var overrideNpc = state.PatchMod.Npcs.GetOrAddAsOverride(npc);
-                overrideNpc.DefaultOutfit.SetTo(outfit.FormKey);
-                patched++;
+                overrideNpc.DefaultOutfit.SetTo(generated.FormKey);
                 Console.WriteLine($"Patched {npc.EditorID ?? npc.FormKey.ToString()}");
             }
 
             Console.WriteLine(
-                $"Done. Patched: {patched}, existing outfits overridden: {outfitOverrides}, unresolved: {missing}");
+                $"Done. Patched: {targets.Count}, skipped (already had outfit): {skippedFilled}, unresolved: {missing}");
         }
 
-        private static IOutfitGetter? ResolveOutfit(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
+        /// <summary>
+        /// Returns the generated outfit record living in the patch plugin, creating it if the
+        /// patch doesn't contain one yet. The FormKey and EditorID are fixed constants.
+        /// </summary>
+        private static IOutfitGetter GetOrCreateGeneratedOutfit(
+            IPatcherState<ISkyrimMod, ISkyrimModGetter> state,
+            IOutfitGetter source)
+        {
+            var formKey = new FormKey(state.PatchMod.ModKey, GeneratedOutfitFormId);
+
+            if (state.PatchMod.Outfits.TryGetValue(formKey, out var existing))
+            {
+                return existing;
+            }
+
+            var generated = new Outfit(formKey, state.PatchMod.SkyrimRelease);
+            generated.DeepCopyIn(source);                  // copy the hide armor outfit's item list
+            generated.EditorID = GeneratedOutfitEditorId;  // DeepCopyIn also copies the source EditorID, so reset it
+            state.PatchMod.Outfits.Add(generated);
+            return generated;
+        }
+
+        private static IOutfitGetter? ResolveSourceOutfit(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
             if (Settings.OutfitOverride.IsNull) return null;
             return Settings.OutfitOverride.TryResolve(state.LinkCache, out var outfit) ? outfit : null;
