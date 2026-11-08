@@ -38,8 +38,8 @@ namespace HideArmorOutfitPatcher
             }
 
             // Step 1: pick the NPCs that need work.
-            //   - NPC already has a default outfit -> left completely alone (no override, no new record)
-            //   - NPC has no outfit                 -> gets a new per-NPC outfit record whose contents
+            //   - NPC already has a default outfit that exists -> left completely alone (no override, no new record)
+            //   - NPC has no outfit, or its outfit record is missing -> gets a new per-NPC outfit record whose contents
             //                                          come from the OutfitOverride placeholder
             var targets = new List<INpcGetter>();
             var seenNpcs = new HashSet<FormKey>();
@@ -58,9 +58,17 @@ namespace HideArmorOutfitPatcher
 
                 if (!npc.DefaultOutfit.IsNull)
                 {
-                    Console.WriteLine($"Skipping {npc.EditorID ?? npc.FormKey.ToString()}: outfit already set.");
-                    skippedFilled++;
-                    continue;
+                    if (state.LinkCache.TryResolve<IOutfitGetter>(npc.DefaultOutfit.FormKey, out _))
+                    {
+                        Console.WriteLine($"Skipping {npc.EditorID ?? npc.FormKey.ToString()}: outfit already set.");
+                        skippedFilled++;
+                        continue;
+                    }
+
+                    // The outfit link points at a record that no longer exists: treat as unfilled
+                    Console.WriteLine(
+                        $"{npc.EditorID ?? npc.FormKey.ToString()}: outfit {npc.DefaultOutfit.FormKey} " +
+                        "no longer exists, regenerating.");
                 }
 
                 targets.Add(npc);
