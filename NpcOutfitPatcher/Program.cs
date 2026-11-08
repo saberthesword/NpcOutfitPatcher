@@ -1,7 +1,6 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Cache;
-using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Synthesis;
 using Noggog;
@@ -38,13 +37,14 @@ namespace HideArmorOutfitPatcher
                 return;
             }
 
-            // Step 1: pick the NPCs that need work.
-            //   - NPC already has a default outfit that exists -> left completely alone (no override, no new record)
-            //   - NPC has no outfit, or its outfit record is missing -> gets a new per-NPC outfit record whose contents
-            //                                          come from the OutfitOverride placeholder
+            // Step 1: for each selected NPC, look at the plugin that defines it.
+            //   - That plugin already has Outfit (OTFT) records -> skip the NPC.
+            //   - It has none                                    -> the NPC gets a new outfit record in
+            //                                                       the patch, filled with the
+            //                                                       OutfitOverride placeholder.
             var targets = new List<INpcGetter>();
             var seenNpcs = new HashSet<FormKey>();
-            int skippedFilled = 0, missing = 0;
+            int skipped = 0, missing = 0;
 
             foreach (var link in Settings.Npcs)
             {
@@ -57,44 +57,31 @@ namespace HideArmorOutfitPatcher
                     continue;
                 }
 
-                if (!npc.DefaultOutfit.IsNull)
+                string npcName = npc.EditorID ?? npc.FormKey.ToString();
+                var npcPlugin = npc.FormKey.ModKey;
+                var pluginMod = state.LoadOrder.ListedOrder
+                    .FirstOrDefault(l => l.ModKey == npcPlugin)?.Mod;
+                int outfitCount = pluginMod?.Outfits.Count ?? 0;
+
+                if (outfitCount > 0)
                 {
-                    bool found = state.LinkCache.TryResolve<IOutfitGetter>(npc.DefaultOutfit.FormKey, out var existingOutfit);
-                    string npcName = npc.EditorID ?? npc.FormKey.ToString();
-                    string npcWinner = WinningPlugin<INpcGetter>(state, npc.FormKey);
-
-                    // A record still present but flagged Deleted (e.g. deleted in xEdit) counts as missing
-                    if (found && existingOutfit != null && !existingOutfit.IsDeleted)
-                    {
-                        Console.WriteLine(
-                            $"Skipping {npcName} (NPC winning plugin: {npcWinner}): outfit " +
-                            $"{existingOutfit.EditorID ?? existingOutfit.FormKey.ToString()} [{existingOutfit.FormKey}] " +
-                            $"found in {WinningPlugin<IOutfitGetter>(state, existingOutfit.FormKey)} " +
-                            $"(defined in {existingOutfit.FormKey.ModKey.FileName}).");
-                        skippedFilled++;
-                        continue;
-                    }
-
-                    // The outfit link points at a record that is gone: treat as unfilled
                     Console.WriteLine(
-                        $"{npcName} (NPC winning plugin: {npcWinner}): outfit {npc.DefaultOutfit.FormKey} " +
-                        (found
-                            ? $"is flagged deleted in {WinningPlugin<IOutfitGetter>(state, npc.DefaultOutfit.FormKey)}"
-                            : "no longer exists in the load order") +
-                        ", regenerating.");
+                        $"Skipping {npcName}: {npcPlugin.FileName} already has an Outfit group ({outfitCount} records).");
+                    skipped++;
+                    continue;
                 }
 
+                Console.WriteLine($"{npcName}: {npcPlugin.FileName} has no Outfit records, creating one.");
                 targets.Add(npc);
             }
 
             if (targets.Count == 0)
             {
-                Console.WriteLine(
-                    $"Done. Nothing to patch. Skipped (already had outfit): {skippedFilled}, unresolved: {missing}");
+                Console.WriteLine($"Done. Nothing to patch. Skipped: {skipped}, unresolved: {missing}");
                 return;
             }
 
-            // The placeholder is only needed when there is something to generate
+            // Placeholder entry used as the contents of every generated record
             IOutfitGetter? placeholder = null;
             if (!Settings.OutfitOverride.IsNull)
             {
@@ -106,9 +93,9 @@ namespace HideArmorOutfitPatcher
                     "No valid outfit selected. Pick an outfit for OutfitOverride in the patcher settings.");
             }
 
-            // Step 2: create one outfit record per NPC and point the NPC at it.
-            // Each NPC keeps the FormID it was first given (stored in the ID map), so adding or
-            // removing NPCs later never shifts the IDs of the others.
+            // Step 2: create one outfit record per NPC in the patch (unless the patch already holds
+            // it) and make it the NPC's default outfit. Each NPC keeps the FormID it was first given
+            // (stored in the ID map), so adding or removing NPCs later never shifts other IDs.
             var mapPath = GetIdMapPath(state);
             var idMap = LoadIdMap(mapPath);
             uint nextId = Math.Max(FirstGeneratedFormId, idMap.Values.DefaultIfEmpty(0u).Max() + 1);
@@ -141,7 +128,7 @@ namespace HideArmorOutfitPatcher
             Console.WriteLine($"ID map saved to {mapPath}");
 
             Console.WriteLine(
-                $"Done. NPCs patched / new outfit records: {ordered.Count}, skipped (already had outfit): {skippedFilled}, unresolved: {missing}");
+                $"Done. NPCs patched / outfit records: {ordered.Count}, skipped: {skipped}, unresolved: {missing}");
         }
 
         /// <summary>
@@ -174,17 +161,6 @@ namespace HideArmorOutfitPatcher
 
             state.PatchMod.Outfits.Add(generated);
             return generated;
-        }
-
-        /// <summary>Name of the plugin holding the winning version of a record, for log output.</summary>
-        private static string WinningPlugin<TMajor>(
-            IPatcherState<ISkyrimMod, ISkyrimModGetter> state,
-            FormKey formKey)
-            where TMajor : class, IMajorRecordQueryableGetter
-        {
-            return state.LinkCache.TryResolveSimpleContext<TMajor>(formKey, out var context)
-                ? context.ModKey.FileName.String
-                : "unknown";
         }
 
         // ---------- ID map ----------

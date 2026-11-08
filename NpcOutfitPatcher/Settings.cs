@@ -10,7 +10,7 @@ namespace HideArmorOutfitPatcher
         [SynthesisTooltip("NPCs to patch. Only these NPCs are touched; nothing else in the load order is.")]
         public List<FormLink<INpcGetter>> Npcs = new();
 
-        [SynthesisTooltip("Placeholder contents for the outfit record of selected NPCs that have no outfit. NPCs that already have one are copied from their own outfit.")]
+        [SynthesisTooltip("Placeholder entry used as the contents of the outfit record created for each NPC whose plugin has no Outfit records.")]
         public FormLink<IOutfitGetter> OutfitOverride = new();
     }
 }
