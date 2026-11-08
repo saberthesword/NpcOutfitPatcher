@@ -1,6 +1,7 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Cache;
+using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Synthesis;
 using Noggog;
@@ -58,17 +59,29 @@ namespace HideArmorOutfitPatcher
 
                 if (!npc.DefaultOutfit.IsNull)
                 {
-                    if (state.LinkCache.TryResolve<IOutfitGetter>(npc.DefaultOutfit.FormKey, out _))
+                    bool found = state.LinkCache.TryResolve<IOutfitGetter>(npc.DefaultOutfit.FormKey, out var existingOutfit);
+                    string npcName = npc.EditorID ?? npc.FormKey.ToString();
+                    string npcWinner = WinningPlugin<INpcGetter>(state, npc.FormKey);
+
+                    // A record still present but flagged Deleted (e.g. deleted in xEdit) counts as missing
+                    if (found && existingOutfit != null && !existingOutfit.IsDeleted)
                     {
-                        Console.WriteLine($"Skipping {npc.EditorID ?? npc.FormKey.ToString()}: outfit already set.");
+                        Console.WriteLine(
+                            $"Skipping {npcName} (NPC winning plugin: {npcWinner}): outfit " +
+                            $"{existingOutfit.EditorID ?? existingOutfit.FormKey.ToString()} [{existingOutfit.FormKey}] " +
+                            $"found in {WinningPlugin<IOutfitGetter>(state, existingOutfit.FormKey)} " +
+                            $"(defined in {existingOutfit.FormKey.ModKey.FileName}).");
                         skippedFilled++;
                         continue;
                     }
 
-                    // The outfit link points at a record that no longer exists: treat as unfilled
+                    // The outfit link points at a record that is gone: treat as unfilled
                     Console.WriteLine(
-                        $"{npc.EditorID ?? npc.FormKey.ToString()}: outfit {npc.DefaultOutfit.FormKey} " +
-                        "no longer exists, regenerating.");
+                        $"{npcName} (NPC winning plugin: {npcWinner}): outfit {npc.DefaultOutfit.FormKey} " +
+                        (found
+                            ? $"is flagged deleted in {WinningPlugin<IOutfitGetter>(state, npc.DefaultOutfit.FormKey)}"
+                            : "no longer exists in the load order") +
+                        ", regenerating.");
                 }
 
                 targets.Add(npc);
@@ -161,6 +174,17 @@ namespace HideArmorOutfitPatcher
 
             state.PatchMod.Outfits.Add(generated);
             return generated;
+        }
+
+        /// <summary>Name of the plugin holding the winning version of a record, for log output.</summary>
+        private static string WinningPlugin<TMajor>(
+            IPatcherState<ISkyrimMod, ISkyrimModGetter> state,
+            FormKey formKey)
+            where TMajor : class, IMajorRecordQueryableGetter
+        {
+            return state.LinkCache.TryResolveSimpleContext<TMajor>(formKey, out var context)
+                ? context.ModKey.FileName.String
+                : "unknown";
         }
 
         // ---------- ID map ----------
